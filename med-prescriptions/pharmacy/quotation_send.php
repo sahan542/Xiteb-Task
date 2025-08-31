@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../inc/config.php';
 require_once __DIR__ . '/../inc/db.php';
 require_once __DIR__ . '/../inc/auth.php';
+require_once __DIR__ . '/../inc/mailer.php'; // <-- ensure this includes PHPMailer + config
 
 require_user();
 $me = current_user();
@@ -16,7 +17,7 @@ if (!$qid) {
 
 $con = db();
 
-// Load quotation + recipient
+/** Load quotation + recipient user */
 $sql = "SELECT q.*, p.user_id, u.email
         FROM quotations q
         JOIN prescriptions p ON p.id = q.prescription_id
@@ -30,16 +31,11 @@ $stmt->close();
 
 if (!$quote) {
   error_log("Send quote: quotation not found id=$qid");
-  header('Location: ' . BASE_URL . 'pharmacy/quotations.php'); exit;
+  header('Location: ' . BASE_URL . 'pharmacy/quotations.php');
+  exit;
 }
 
-// Only allow sending from draft (or you can relax to allow re-send of 'sent')
-if ($quote['status'] !== 'draft') {
-  // proceed anyway to overwrite sent date? your call:
-  // header('Location: ' . BASE_URL . 'pharmacy/quotations.php'); exit;
-}
-
-// Mark as sent + expiry
+// Mark as sent + set expiry
 $expiresAt = (new DateTime("+$days days"))->format('Y-m-d 23:59:59');
 $upd = $con->prepare("UPDATE quotations SET status='sent', expires_at=?, sent_at=NOW() WHERE id=?");
 $upd->bind_param('si', $expiresAt, $qid);
@@ -50,54 +46,24 @@ $upd->close();
 $to   = $quote['email'];
 $subj = "Your Quotation #$qid";
 $link = rtrim(BASE_URL, '/') . "/user/quotation_show.php?id=$qid";
-$body = "Hello,\n\nYour pharmacy has sent a quotation.\n\n"
-      . "Quotation ID: $qid\n"
-      . "Expires on: " . date('Y-m-d', strtotime($expiresAt)) . "\n\n"
-      . "View & respond: $link\n\n"
-      . "Thank you.";
 
-// --- Sending options ---
-// 1) Native mail() — requires a working MTA on the server:
-$headers  = "From: no-reply@example.com\r\n";
-$headers .= "Reply-To: no-reply@example.com\r\n";
-$headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
+$html = "
+  <div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#222\">
+    <h2 style=\"margin:0 0 10px\">Your quotation is ready</h2>
+    <p>Quotation ID: <b>$qid</b></p>
+    <p>Expires on: <b>" . htmlspecialchars(date('Y-m-d', strtotime($expiresAt))) . "</b></p>
+    <p><a href=\"$link\" style=\"background:#16a34a;color:#fff;padding:10px 14px;text-decoration:none;border-radius:6px;display:inline-block\">View & Respond</a></p>
+    <p>If the button doesn't work, copy this link into your browser:<br><a href=\"$link\">$link</a></p>
+  </div>
+";
 
-$sent = @mail($to, $subj, $body, $headers);
+// Send via PHPMailer SMTP
+$ok = send_email($to, $subj, $html);
 
-// 2) PHPMailer via SMTP (recommended) — uncomment + configure to use:
-/*
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
-require_once __DIR__ . '/../vendor/autoload.php';
-
-try {
-  $mail = new PHPMailer(true);
-  $mail->isSMTP();
-  $mail->Host       = 'smtp.yourhost.com';
-  $mail->SMTPAuth   = true;
-  $mail->Username   = 'smtp_user';
-  $mail->Password   = 'smtp_pass';
-  $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS; // or PHPMailer::ENCRYPTION_SMTPS
-  $mail->Port       = 587;
-
-  $mail->setFrom('no-reply@example.com', 'Pharmacy');
-  $mail->addAddress($to);
-  $mail->Subject = $subj;
-  $mail->Body    = $body;
-
-  $sent = $mail->send();
-} catch (Throwable $e) {
-  error_log("PHPMailer error for quote $qid: " . $e->getMessage());
-  $sent = false;
-}
-*/
-
-if (!$sent) {
-  error_log("Email NOT sent for quote $qid to $to");
-} else {
-  error_log("Email sent for quote $qid to $to");
+if (!$ok) {
+  error_log("Email NOT sent for quote $qid to $to (see MAIL_LOG_FILE if set)");
 }
 
-// Redirect wherever makes sense for the pharmacy UI
+// Redirect back to pharmacy list (or wherever)
 header('Location: ' . BASE_URL . 'pharmacy/quotations.php');
 exit;

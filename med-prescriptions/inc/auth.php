@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/config.php';   // <-- so BASE_URL & session exist
+require_once __DIR__ . '/config.php';  
 require_once __DIR__ . '/db.php';
 
 function url(string $path = ''): string {
@@ -25,14 +25,12 @@ function require_user() {
 function require_role(string $role) {
   require_user();
   if (!is_role($role)) {
-    // redirect somewhere safe instead of hard 403
     header('Location: ' . url('user/quotations.php'));
     exit;
   }
 }
 
 function login_user(array $row) {
-  // regenerate to prevent session fixation
   if (session_status() === PHP_SESSION_ACTIVE) {
     session_regenerate_id(true);
   }

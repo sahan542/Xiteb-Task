@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS quotations (
   total DECIMAL(10,2) NOT NULL DEFAULT 0,
   status ENUM('draft','sent','accepted','rejected','expired') NOT NULL DEFAULT 'draft',
   expires_at DATETIME NULL,
+  sent_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   accepted_flag TINYINT(1)
