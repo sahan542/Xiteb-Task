@@ -1,7 +1,11 @@
-# Prevent executing PHP inside uploads
-<Directory "/uploads/prescriptions">
-  php_flag engine off
-</Directory>
+# public/.htaccess
 
-# Fallback to index (optional)
+# Disable directory listing
 Options -Indexes
+
+# Prevent executing PHP inside uploads/prescriptions
+<IfModule mod_authz_core.c>
+  <FilesMatch "^uploads/prescriptions/.*\.(php|phtml|phar|cgi|pl|asp|aspx)$">
+    Require all denied
+  </FilesMatch>
+</IfModule>

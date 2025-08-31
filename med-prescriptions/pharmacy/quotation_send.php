@@ -1,96 +1,103 @@
 <?php
 require_once __DIR__ . '/../inc/config.php';
-require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/db.php';
-require_once __DIR__ . '/../inc/mailer.php';
+require_once __DIR__ . '/../inc/auth.php';
 
-if (session_status() === PHP_SESSION_NONE) session_start();
-
-if (empty($_SESSION['user'])) {
-  $next = urlencode($_SERVER['REQUEST_URI'] ?? BASE_URL);
-  header('Location: ' . BASE_URL . 'login.php?next=' . $next);
-  exit;
-}
-if (($_SESSION['user']['role'] ?? '') !== 'pharmacy') {
-  header('Location: ' . BASE_URL . 'user/quotations.php');
-  exit;
-}
+require_user();
+$me = current_user();
 
 $qid  = (int)($_POST['qid'] ?? 0);
-$days = max(1, (int)($_POST['days'] ?? 7));
+$days = max(1, min(30, (int)($_POST['days'] ?? 7)));
 
-if ($qid <= 0) { http_response_code(400); exit('Invalid quotation id'); }
+if (!$qid) {
+  header('Location: ' . BASE_URL . 'pharmacy/quotations.php');
+  exit;
+}
 
 $con = db();
 
+// Load quotation + recipient
 $sql = "SELECT q.*, p.user_id, u.email
         FROM quotations q
         JOIN prescriptions p ON p.id = q.prescription_id
         JOIN users u ON u.id = p.user_id
-        WHERE q.id = ? AND q.pharmacy_id = ?";
+        WHERE q.id = ?";
 $stmt = $con->prepare($sql);
-$stmt->bind_param('ii', $qid, $_SESSION['user']['id']);
+$stmt->bind_param('i', $qid);
 $stmt->execute();
 $quote = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-if (!$quote) { http_response_code(404); exit; }
-
-$expiresAt = (new DateTime())->modify("+{$days} days")->format('Y-m-d H:i:s');
-
-$sql = "UPDATE quotations SET status='sent', expires_at=? WHERE id=?";
-$stmt = $con->prepare($sql);
-$stmt->bind_param('si', $expiresAt, $qid);
-$stmt->execute();
-$stmt->close();
-
-$sql = "UPDATE prescriptions SET status='quoted' WHERE id=?";
-$stmt = $con->prepare($sql);
-$stmt->bind_param('i', $quote['prescription_id']);
-$stmt->execute();
-$stmt->close();
-
-$sql = "SELECT * FROM quotation_items WHERE quotation_id=?";
-$stmt = $con->prepare($sql);
-$stmt->bind_param('i', $qid);
-$stmt->execute();
-$res   = $stmt->get_result();
-$items = $res->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-function h($v){ return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
-
-$trs = '';
-foreach ($items as $i) {
-  $trs .= '<tr>'
-        . '<td>' . h($i['drug']) . '</td>'
-        . '<td>' . (int)$i['quantity'] . '</td>'
-        . '<td>' . number_format((float)$i['unit_price'], 2) . '</td>'
-        . '<td>' . number_format((float)$i['line_total'], 2) . '</td>'
-        . '</tr>';
+if (!$quote) {
+  error_log("Send quote: quotation not found id=$qid");
+  header('Location: ' . BASE_URL . 'pharmacy/quotations.php'); exit;
 }
 
-$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$link   = $scheme . '://' . $host . BASE_URL . 'user/quotation_show.php?id=' . $qid;
+// Only allow sending from draft (or you can relax to allow re-send of 'sent')
+if ($quote['status'] !== 'draft') {
+  // proceed anyway to overwrite sent date? your call:
+  // header('Location: ' . BASE_URL . 'pharmacy/quotations.php'); exit;
+}
 
-$html = "<h3>Your quotation is ready</h3>
-<p>Expires: <b>{$expiresAt}</b></p>
-<table border='1' cellpadding='6'>
-  <tr><th>Drug</th><th>Qty</th><th>Unit</th><th>Amount</th></tr>{$trs}
-  <tr><td colspan='3' align='right'><b>Total</b></td><td><b>" . number_format((float)$quote['total'], 2) . "</b></td></tr>
-</table>
-<p><a href='{$link}'>View / Accept / Reject</a></p>";
+// Mark as sent + expiry
+$expiresAt = (new DateTime("+$days days"))->format('Y-m-d 23:59:59');
+$upd = $con->prepare("UPDATE quotations SET status='sent', expires_at=?, sent_at=NOW() WHERE id=?");
+$upd->bind_param('si', $expiresAt, $qid);
+$upd->execute();
+$upd->close();
 
-send_email($quote['email'], "Prescription quotation #{$qid}", $html);
+// Build email
+$to   = $quote['email'];
+$subj = "Your Quotation #$qid";
+$link = rtrim(BASE_URL, '/') . "/user/quotation_show.php?id=$qid";
+$body = "Hello,\n\nYour pharmacy has sent a quotation.\n\n"
+      . "Quotation ID: $qid\n"
+      . "Expires on: " . date('Y-m-d', strtotime($expiresAt)) . "\n\n"
+      . "View & respond: $link\n\n"
+      . "Thank you.";
 
-$sql = "INSERT INTO notifications (user_id, type, entity_id, message) VALUES (?,?,?,?)";
-$type = 'quotation_sent';
-$msg  = 'A new quotation is available';
-$stmt = $con->prepare($sql);
-$stmt->bind_param('isis', $quote['user_id'], $type, $qid, $msg);
-$stmt->execute();
-$stmt->close();
+// --- Sending options ---
+// 1) Native mail() — requires a working MTA on the server:
+$headers  = "From: no-reply@example.com\r\n";
+$headers .= "Reply-To: no-reply@example.com\r\n";
+$headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
 
-header('Location: ' . BASE_URL . 'pharmacy/prescriptions.php');
+$sent = @mail($to, $subj, $body, $headers);
+
+// 2) PHPMailer via SMTP (recommended) — uncomment + configure to use:
+/*
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
+require_once __DIR__ . '/../vendor/autoload.php';
+
+try {
+  $mail = new PHPMailer(true);
+  $mail->isSMTP();
+  $mail->Host       = 'smtp.yourhost.com';
+  $mail->SMTPAuth   = true;
+  $mail->Username   = 'smtp_user';
+  $mail->Password   = 'smtp_pass';
+  $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS; // or PHPMailer::ENCRYPTION_SMTPS
+  $mail->Port       = 587;
+
+  $mail->setFrom('no-reply@example.com', 'Pharmacy');
+  $mail->addAddress($to);
+  $mail->Subject = $subj;
+  $mail->Body    = $body;
+
+  $sent = $mail->send();
+} catch (Throwable $e) {
+  error_log("PHPMailer error for quote $qid: " . $e->getMessage());
+  $sent = false;
+}
+*/
+
+if (!$sent) {
+  error_log("Email NOT sent for quote $qid to $to");
+} else {
+  error_log("Email sent for quote $qid to $to");
+}
+
+// Redirect wherever makes sense for the pharmacy UI
+header('Location: ' . BASE_URL . 'pharmacy/quotations.php');
 exit;

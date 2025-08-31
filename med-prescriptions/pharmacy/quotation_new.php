@@ -20,30 +20,46 @@ function h($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 function rx_img_url(?string $fname): string {
   if (!$fname) return '';
 
-
+  // Absolute URL? return as-is
   if (preg_match('~^https?://~i', $fname)) {
     return $fname;
   }
 
+  // Normalize slashes + trim
+  $f = trim(str_replace('\\', '/', (string)$fname));
+  $f = ltrim($f, '/');
 
-  $f = ltrim(str_replace('\\', '/', (string)$fname), '/');
+  // Strip common prefixes stored in DB so we end up relative to /public/uploads
+  // e.g. "public/uploads/prescriptions/abc.jpg" -> "prescriptions/abc.jpg"
+  //      "uploads/abc.jpg"                      -> "abc.jpg"
+  $f = preg_replace('~^(public/)?uploads/~i', '', $f);
 
-
-  $segments = array_map('rawurlencode', array_filter(explode('/', $f), 'strlen'));
-  $encodedPath = implode('/', $segments);
-
-  $baseHttp = rtrim(BASE_URL, '/');                 
-  $uploadsHttp = $baseHttp . '/public/uploads/';  
-  $uploadsFs   = realpath(__DIR__ . '/../public/uploads');
-
- 
-  $candidateFs = $uploadsFs ? $uploadsFs . '/' . $f : null;
-  if ($candidateFs && is_file($candidateFs)) {
-    return $uploadsHttp . $encodedPath;
+  // Ensure it lives under the prescriptions subfolder
+  if (!preg_match('~^prescriptions/~i', $f)) {
+    $f = 'prescriptions/' . $f;
   }
 
-  $encodedBasename = rawurlencode(basename($f));
-  return $uploadsHttp . $encodedBasename;
+  // Build the public URL
+  $baseHttp    = rtrim(BASE_URL, '/');              // e.g. http://localhost/Xiteb/med-prescriptions
+  $uploadsHttp = $baseHttp . '/public/uploads';
+
+  // URL-encode each segment safely
+  $segments    = array_map('rawurlencode', array_filter(explode('/', $f), 'strlen'));
+  $encodedPath = implode('/', $segments);
+  $url         = $uploadsHttp . '/' . $encodedPath;
+
+  // Optional filesystem existence check (useful during dev)
+  $uploadsFs = __DIR__ . '/../public/uploads';
+  $candidate = rtrim($uploadsFs, '/\\') . '/' . $f;
+
+  if (is_file($candidate)) {
+    return $url;
+  }
+
+  // If you prefer, return a placeholder if not found:
+  // return $baseHttp . '/public/images/placeholder.png';
+
+  return $url;
 }
 
 
@@ -51,7 +67,6 @@ $con = db();
 
 $pid = (int)($_GET['pid'] ?? 0);
 if ($pid <= 0) { echo "Prescription not found"; exit; }
-
 
 $sql = "SELECT p.*, u.email 
         FROM prescriptions p 
@@ -83,7 +98,6 @@ if (!$quote) {
   $qid = (int)$quote['id'];
 }
 
-
 $sql = "SELECT * FROM quotation_items WHERE quotation_id = ?";
 $stmt = $con->prepare($sql);
 $stmt->bind_param('i', $qid);
@@ -103,7 +117,6 @@ $imgsRes = $stmt->get_result();
 $imgs = $imgsRes->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-
 $imgUrls = [];
 foreach ($imgs as $im) {
   $url = rx_img_url($im['image_path'] ?? '');
@@ -116,13 +129,9 @@ foreach ($imgs as $im) {
   <meta charset="utf-8">
   <title>Prepare Quotation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= BASE_URL ?>style.css">
-
   <style>
-
     .grid-table thead th,
     .grid-table tbody td,
     .grid-table tfoot td {
@@ -130,7 +139,6 @@ foreach ($imgs as $im) {
       text-align: center;
       vertical-align: middle;
     }
-
     .rx-main {
       position: relative;
       border: 1px solid #e0e0e0;
@@ -138,8 +146,7 @@ foreach ($imgs as $im) {
       background: #fff;
       overflow: hidden;
     }
-
-    .rx-main::before { content: ""; display: block; padding-top: 100%; } 
+    .rx-main::before { content: ""; display: block; padding-top: 100%; } /* square */
     .rx-main img {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
@@ -171,7 +178,7 @@ foreach ($imgs as $im) {
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
         <h3 class="card-title mb-0">Prepare Quotation</h3>
         <div class="text-muted small">
-          Rx ID: <b><?= (int)$pid ?></b> &nbsp;|&nbsp; Patient: <b><?= h($p['email']) ?></b>
+          Prescription ID: <b><?= (int)$pid ?></b> &nbsp;|&nbsp; Patient: <b><?= h($p['email']) ?></b>
         </div>
       </div>
 
@@ -285,7 +292,7 @@ foreach ($imgs as $im) {
   const mainImg = document.getElementById('rxMain');
   const frame   = document.getElementById('rxMainFrame');
   const fullBtn = document.getElementById('rxFull');
-  const thumbs  = Array.from(document.querySelectorAll('.rx-thumb')); 
+  const thumbs  = Array.from(document.querySelectorAll('.rx-thumb'));
   if (!mainImg || !frame || thumbs.length === 0) return;
 
   let current = Math.max(0, thumbs.findIndex(t => t.classList.contains('active')));
@@ -294,24 +301,21 @@ foreach ($imgs as $im) {
   function setActive(idx) {
     if (!thumbs.length) return;
     const n = thumbs.length;
-    current = ((idx % n) + n) % n; 
+    current = ((idx % n) + n) % n;
     const btn = thumbs[current];
     const src = btn.getAttribute('data-src');
     if (src) mainImg.src = src;
 
-
     thumbs.forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
 
-
     btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
 
-
+    // Preload neighbors
     const next = thumbs[(current + 1) % n]?.getAttribute('data-src');
     const prev = thumbs[(current - 1 + n) % n]?.getAttribute('data-src');
     [next, prev].forEach(u => { if (u) { const img = new Image(); img.src = u; } });
   }
-
 
   thumbs.forEach((btn, i) => {
     btn.addEventListener('click', () => setActive(i));
@@ -332,7 +336,6 @@ foreach ($imgs as $im) {
   frame.addEventListener('click', (e) => {
     if (e.target === mainImg) openFullscreen(frame);
   });
-
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') { setActive(current + 1); }
@@ -355,11 +358,9 @@ foreach ($imgs as $im) {
     touchX = null;
   }, { passive: true });
 
-
   setActive(current);
 })();
 </script>
-
 
 </body>
 </html>
