@@ -1,0 +1,62 @@
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; 
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.login-section {
+  height: 100vh;
+  width: 100vw;
+}
+
+.row {
+  height: 100%;
+  margin: 0;
+}
+
+.bg-dark {
+  background-color: #000 !important; 
+}
+
+.login-box {
+  max-width: 350px;
+  width: 100%;
+}
+
+.custom-input {
+  background-color: #333;
+  border: none;
+  color: #fff;
+  padding: 12px;
+}
+
+.custom-input::placeholder {
+  color: #aaa;
+}
+
+.custom-input:focus {
+  outline: none;
+  box-shadow: none;
+  border: 1px solid #6c63ff;
+  background-color: #222;
+  color: #fff;
+}
+
+.btn-primary {
+  background-color: #4a52ff;
+  border: none;
+  padding: 12px;
+}
+
+.btn-primary:hover {
+  background-color: #3a42d6;
+}
+
+.bg-image {
+  background: url("pharmacy.jpg") no-repeat center center;
+  background-size: cover;
+  /* height: 100%;
+  width: 100%; */
+}

@@ -1,0 +1,7 @@
+# Prevent executing PHP inside uploads
+<Directory "/uploads/prescriptions">
+  php_flag engine off
+</Directory>
+
+# Fallback to index (optional)
+Options -Indexes
