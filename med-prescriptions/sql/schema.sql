@@ -98,3 +98,4 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notifications_seen (seen),
   INDEX idx_notifications_user_created (user_id, created_at)
 );
+

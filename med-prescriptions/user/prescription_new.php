@@ -4,6 +4,8 @@ require_once __DIR__ . '/../inc/auth.php';
 require_once __DIR__ . '/../inc/helpers.php';
 
 require_user();
+
+$me = current_user();
 $slots = time_slots_2h();
 ?>
 <!DOCTYPE html>
@@ -25,6 +27,8 @@ $slots = time_slots_2h();
       </div>
 
       <div class="d-flex align-items-center ms-auto">
+                <span class="text-white me-3">Welcome, <?= e($me['name']) ?></span>
+
         <a href="<?= e(BASE_URL) ?>/user/logout.php" class="btn btn-outline-light btn-sm">Logout</a>
       </div>
 
