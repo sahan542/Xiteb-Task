@@ -8,7 +8,6 @@ require_user();
 $me = current_user();
 
 $mysqli = db();
-// Query: include quotation_id (latest one if there are multiple)
 $stmt = $mysqli->prepare('
   SELECT
     p.*,
@@ -94,19 +93,31 @@ $rows = $res->fetch_all(MYSQLI_ASSOC);
                   <td><?= e($r['img_count']) ?></td>
 <td>
   <?php
-    // normalize status value
+    // normalize + badge color
     $status = strtolower(trim((string)$r['status']));
-    $badgeClass = ($status === 'quoted') ? 'bg-info text-dark' : 'bg-secondary';
+    $badgeClass = match ($status) {
+      'pending'  => 'bg-warning text-dark',
+      'quoted'   => 'bg-info text-dark',
+      'sent'     => 'bg-primary',
+      'accepted' => 'bg-success',
+      'rejected' => 'bg-danger',
+      default    => 'bg-secondary',
+    };
+
+    // show button for these statuses
+    $showFor = ['accepted','rejected','pending','quoted'];
+    $canView = !empty($r['quotation_id']) && in_array($status, $showFor, true);
   ?>
   <span class="badge <?= $badgeClass ?>"><?= e($r['status']) ?></span>
 
-  <?php if ($status === 'quoted' && isset($r['quotation_id'])): ?>
+  <?php if ($canView): ?>
     <a href="<?= e(BASE_URL) ?>/user/quotation_show.php?id=<?= e($r['quotation_id']) ?>"
        class="btn btn-sm btn-outline-info ms-2">
       View Quotation
     </a>
   <?php endif; ?>
 </td>
+
 
 
                   <td><?= e($r['created_at']) ?></td>

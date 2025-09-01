@@ -1,0 +1,6 @@
+{
+    "name": "xiteb/med-prescriptions",
+    "require": {
+        "phpmailer/phpmailer": "^6.10"
+    }
+}

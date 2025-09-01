@@ -145,7 +145,6 @@ $slots = time_slots_2h();
         let blockSubmit = false;
         const messages = [];
 
-        // Count validation
         if (files.length > MAX_IMAGES) {
           messages.push(`You selected ${files.length} files. Maximum allowed is ${MAX_IMAGES}.`);
           blockSubmit = true;

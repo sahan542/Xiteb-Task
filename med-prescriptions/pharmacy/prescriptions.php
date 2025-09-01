@@ -2,14 +2,13 @@
 require_once __DIR__ . '/../inc/config.php';
 require_once __DIR__ . '/../inc/db.php';
 require_once __DIR__ . '/../inc/auth.php';
+require_once __DIR__ . '/../inc/helpers.php'; // <-- add this so e() exists
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-if (empty($_SESSION['user'])) {
-  $next = urlencode($_SERVER['REQUEST_URI'] ?? BASE_URL);
-  header('Location: ' . BASE_URL . 'login.php?next=' . $next);
-  exit;
-}
+require_user();                 // <-- ensure logged in
+$me = current_user();           // <-- so $me is defined
+
 if (($_SESSION['user']['role'] ?? '') !== 'pharmacy') {
   header('Location: ' . BASE_URL . 'user/quotations.php');
   exit;
@@ -19,12 +18,12 @@ $con = db();
 $sql = "
   SELECT p.*, u.email,
          (SELECT image_path 
-          FROM prescription_images pi 
-          WHERE pi.prescription_id = p.id 
-          ORDER BY pi.id ASC LIMIT 1) AS first_img
+            FROM prescription_images pi 
+            WHERE pi.prescription_id = p.id 
+            ORDER BY pi.id ASC LIMIT 1) AS first_img
   FROM prescriptions p
   JOIN users u ON u.id = p.user_id
-  WHERE p.status IN ('pending','quoted')
+  WHERE p.status IN ('pending','quoted','accepted','rejected')
   ORDER BY p.created_at DESC
 ";
 $res  = $con->query($sql);
@@ -32,7 +31,8 @@ $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
 
 function img_url(?string $fname): string {
   if (!$fname) return '';
-  return BASE_URL . 'public' . rtrim(UPLOAD_REL, '/') . '/' . rawurlencode($fname);
+
+  return rtrim(BASE_URL, '/') . '/public/uploads/prescriptions/' . rawurlencode($fname);
 }
 ?>
 <!doctype html>
@@ -43,7 +43,7 @@ function img_url(?string $fname): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="<?= BASE_URL ?>style.css">
+  <link rel="stylesheet" href="<?= e(BASE_URL) ?>style.css">
 
   <style>
     .grid-table thead th,
@@ -62,6 +62,17 @@ function img_url(?string $fname): string {
   </style>
 </head>
 <body class="bg-light">
+
+  <!-- Top Navigation -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+      <span class="navbar-brand fw-bold">Xiteb Prescription Mangement System</span>
+      <div class="d-flex align-items-center ms-auto">
+        <span class="text-white me-3">Welcome, <?= e($me['name'] ?? 'User') ?></span>
+        <a href="<?= e(BASE_URL) ?>user/logout.php" class="btn btn-outline-light btn-sm">Logout</a>
+      </div>
+    </div>
+  </nav>
 
 <div class="container my-5">
   <div class="card shadow rounded-3">
@@ -82,32 +93,41 @@ function img_url(?string $fname): string {
           <tbody>
     <?php if (empty($rows)): ?>
       <tr>
-        <td colspan="6" class="text-center text-muted py-4">No prescriptions found.</td>
+        <td colspan="5" class="text-center text-muted py-4">No prescriptions found.</td>
       </tr>
     <?php else: ?>
       <?php $i = 1; foreach ($rows as $r): ?>
         <tr>
           <td><?= $i++ ?></td>
-                <td><?= htmlspecialchars($r['email']) ?></td>
-                <td>
-                  <?php if ($r['status']==='pending'): ?>
-                    <span class="badge bg-warning text-dark">Pending</span>
-                  <?php elseif ($r['status']==='quoted'): ?>
-                    <span class="badge bg-info text-dark">Quoted</span>
-                  <?php else: ?>
-                    <span class="badge bg-secondary"><?= htmlspecialchars($r['status']) ?></span>
-                  <?php endif; ?>
-                </td>
-                <td><?= htmlspecialchars($r['created_at']) ?></td>
-                <td>
-                  <a href="<?= BASE_URL . 'pharmacy/quotation_new.php?pid=' . (int)$r['id'] ?>"
-                     class="btn btn-sm btn-outline-primary">
-                    Prepare quotation
-                  </a>
-                </td>
-              </tr>
-            <?php endforeach; ?>
-          <?php endif; ?>
+          <td><?= e($r['email']) ?></td>
+          <td>
+            <?php if ($r['status'] === 'pending'): ?>
+              <span class="badge bg-warning text-dark">Pending</span>
+            <?php elseif ($r['status'] === 'quoted'): ?>
+              <span class="badge bg-info text-dark">Quoted</span>
+            <?php else: ?>
+              <span class="badge bg-secondary"><?= e($r['status']) ?></span>
+            <?php endif; ?>
+          </td>
+          <td><?= e($r['created_at']) ?></td>
+<td>
+  <?php
+    $st = strtolower(trim((string)$r['status'])); 
+    $canPrepare = in_array($st, ['quoted','pending'], true);
+  ?>
+  <?php if ($canPrepare): ?>
+    <a href="<?= e(BASE_URL) . 'pharmacy/quotation_new.php?pid=' . (int)$r['id'] ?>"
+       class="btn btn-sm btn-outline-primary">
+      Prepare quotation
+    </a>
+  <?php else: ?>
+    <span class="text-muted">Done</span>
+  <?php endif; ?>
+</td>
+
+        </tr>
+      <?php endforeach; ?>
+    <?php endif; ?>
           </tbody>
         </table>
       </div>
